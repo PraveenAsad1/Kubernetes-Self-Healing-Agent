@@ -2,7 +2,10 @@ import os
 import yaml
 import logging
 from typing import Tuple, Dict, Any
-from agent.schemas import RemediationProposal
+try:
+    from agent.schemas import RemediationProposal
+except ImportError:
+    from src.agent.schemas import RemediationProposal
 
 logger = logging.getLogger(__name__)
 

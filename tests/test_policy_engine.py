@@ -106,5 +106,27 @@ class TestPolicyEngine(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("not in allowed_resources", reason)
 
+    def test_malformed_current_memory(self):
+        action = self.valid_action.model_copy(update={"current_memory": "not-a-valid-mem"})
+        proposal = RemediationProposal(
+            incident=self.valid_incident,
+            diagnosis=self.valid_diagnosis,
+            proposed_action=action
+        )
+        passed, reason = evaluate_proposal(proposal, current_attempt_count=0)
+        self.assertFalse(passed)
+        self.assertIn("Could not parse valid current memory", reason)
+
+    def test_malformed_proposed_memory(self):
+        action = self.valid_action.model_copy(update={"proposed_memory": "invalid"})
+        proposal = RemediationProposal(
+            incident=self.valid_incident,
+            diagnosis=self.valid_diagnosis,
+            proposed_action=action
+        )
+        passed, reason = evaluate_proposal(proposal, current_attempt_count=0)
+        self.assertFalse(passed)
+        self.assertIn("strictly greater than current", reason)
+
 if __name__ == '__main__':
     unittest.main()
