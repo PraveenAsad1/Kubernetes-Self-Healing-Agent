@@ -1,0 +1,15 @@
+allowed_namespaces:
+  - safeheal-demo
+
+allowed_operations:
+  - increase_memory_limit
+
+allowed_resources:
+  - memory-hog
+
+max_memory_multiplier: 2.0
+
+max_attempts: 2
+
+require_human_approval:
+  - increase_memory_limit
