@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-# SafeHeal Hackathon Prototype
+# Self-Heal Hackathon Prototype
 
 Policy-Controlled AI Agent for Safe Kubernetes Self-Healing.
 
