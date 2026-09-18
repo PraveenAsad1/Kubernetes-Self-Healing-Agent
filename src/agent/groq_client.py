@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 # Initialize Groq client
 # This expects GROQ_API_KEY to be set in environment variables or .env file
 client = Groq()
-# We will use llama3-8b-8192 or llama3-70b-8192 for the hackathon
-DEFAULT_MODEL = "llama3-70b-8192"
+DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 def analyze_incident(
     namespace: str,
@@ -42,6 +41,13 @@ def analyze_incident(
         previous_attempts=previous_attempts
     )
     
+    prompt += (
+        "\n## Required JSON schema\n"
+        f"{json.dumps(RemediationProposal.model_json_schema(), indent=2)}\n"
+        "Return ONLY a JSON object that matches this schema. "
+        "Top-level keys must be incident, diagnosis, and proposed_action.\n"
+    )
+
     logger.info(f"Sending incident data to Groq (Model: {DEFAULT_MODEL})...")
     
     try:
