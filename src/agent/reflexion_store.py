@@ -1,6 +1,5 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
-import json
 
 class ReflexionStore:
     """
@@ -13,37 +12,57 @@ class ReflexionStore:
     def add_attempt(self, 
                     run_id: str,
                     operation: str,
-                    old_value: str,
-                    new_value: str, 
+                    old_value: Optional[str],
+                    new_value: Optional[str], 
                     diagnosis: str, 
                     reason: str,
                     result: str,
-                    failure_evidence: str):
+                    failure_evidence: Optional[str]):
         attempt_record = {
             "run_id": run_id,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "operation": operation,
-            "old_value": old_value,
-            "new_value": new_value,
-            "diagnosis": diagnosis,
-            "reason": reason,
-            "result": result,
-            "failure_evidence": failure_evidence
+            "old_value": str(old_value) if old_value is not None else "",
+            "new_value": str(new_value) if new_value is not None else "",
+            "diagnosis": diagnosis or "",
+            "reason": reason or "",
+            "result": result or "FAILED",
+            "failure_evidence": failure_evidence or "No specific evidence recorded"
         }
         self.attempts.append(attempt_record)
         
-    def get_attempts(self, run_id: str = None) -> List[Dict[str, Any]]:
+    def get_attempts(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieve past attempts, optionally filtered by run_id.
         """
         if run_id:
-            return [a for a in self.attempts if a["run_id"] == run_id]
+            return [a for a in self.attempts if a.get("run_id") == run_id]
         return self.attempts
         
-    def get_attempt_count(self, run_id: str = None) -> int:
+    def get_attempt_count(self, run_id: Optional[str] = None) -> int:
         return len(self.get_attempts(run_id))
+
+    def get_latest_attempt(self, run_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Returns the most recent attempt for the given run_id (or overall), or None.
+        """
+        attempts = self.get_attempts(run_id)
+        if attempts:
+            return attempts[-1]
+        return None
+
+    def is_duplicate_proposal(self, run_id: Optional[str], operation: str, proposed_memory: Optional[str]) -> bool:
+        """
+        Checks if a proposal with the same operation and proposed memory limit was already attempted.
+        """
+        attempts = self.get_attempts(run_id)
+        prop_str = str(proposed_memory) if proposed_memory is not None else ""
+        for att in attempts:
+            if att.get("operation") == operation and att.get("new_value") == prop_str:
+                return True
+        return False
         
-    def format_for_llm(self, run_id: str = None) -> str:
+    def format_for_llm(self, run_id: Optional[str] = None) -> str:
         """
         Formats the attempts into a readable string for the LLM prompt.
         """

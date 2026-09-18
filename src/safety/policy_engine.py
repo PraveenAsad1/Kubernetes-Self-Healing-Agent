@@ -46,6 +46,9 @@ def evaluate_proposal(proposal: RemediationProposal, current_attempt_count: int 
     """
     Evaluates a RemediationProposal against the deterministic policy rules.
     Returns a tuple (is_approved, reason).
+
+    The `escalate` operation is treated as a non-mutating authorized action and
+    bypasses memory magnitude checks; it still must pass namespace and attempt checks.
     """
     try:
         policy = load_policy()
@@ -65,21 +68,22 @@ def evaluate_proposal(proposal: RemediationProposal, current_attempt_count: int 
     if action.operation not in allowed_operations:
         return False, f"Operation '{action.operation}' is not in allowed_operations."
 
-    # 3. Resource validation
-    allowed_resources = policy.get('allowed_resources', [])
-    if action.resource not in allowed_resources:
-        return False, f"Resource '{action.resource}' is not in allowed_resources."
-        
-    # Ensure it's not modifying an unintended resource
-    if incident.workload != action.resource:
-         return False, f"Proposed resource '{action.resource}' does not match incident workload '{incident.workload}'."
+    # 3. Resource validation (skip for escalate — no Kubernetes resource is being mutated)
+    if action.operation != "escalate":
+        allowed_resources = policy.get('allowed_resources', [])
+        if action.resource not in allowed_resources:
+            return False, f"Resource '{action.resource}' is not in allowed_resources."
+            
+        # Ensure it's not modifying an unintended resource
+        if incident.workload != action.resource:
+            return False, f"Proposed resource '{action.resource}' does not match incident workload '{incident.workload}'."
 
     # 4. Attempt count validation
     max_attempts = policy.get('max_attempts', 0)
     if current_attempt_count >= max_attempts:
         return False, f"Max attempts ({max_attempts}) reached or exceeded."
 
-    # 5. Magnitude validation (if memory increase)
+    # 5. Magnitude validation (only for increase_memory_limit)
     if action.operation == "increase_memory_limit":
         current_mem = parse_memory(action.current_memory)
         proposed_mem = parse_memory(action.proposed_memory)
@@ -101,7 +105,10 @@ def evaluate_proposal(proposal: RemediationProposal, current_attempt_count: int 
 def requires_human_approval(operation: str) -> bool:
     """
     Checks if the given operation requires human approval according to the policy.
+    `escalate` is always non-interactive — it routes to ESCALATED, not HITL.
     """
+    if operation == "escalate":
+        return False
     try:
         policy = load_policy()
         require_human = policy.get('require_human_approval', [])
@@ -109,3 +116,11 @@ def requires_human_approval(operation: str) -> bool:
     except Exception:
         # Default to safe (requiring approval) if policy fails to load
         return True
+
+def get_max_attempts() -> int:
+    """Returns the configured max_attempts from policy."""
+    try:
+        policy = load_policy()
+        return int(policy.get('max_attempts', 2))
+    except Exception:
+        return 2

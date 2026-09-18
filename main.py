@@ -8,7 +8,7 @@ from enum import Enum
 from src.k8s import k8s_readonly, k8s_patch, verification
 from src.agent.groq_client import analyze_incident
 from src.agent.reflexion_store import ReflexionStore
-from src.safety.policy_engine import evaluate_proposal
+from src.safety.policy_engine import evaluate_proposal, get_max_attempts
 from src.safety.hitl_gate import request_approval
 from src.rag.retriever import get_sop_content
 from src.logging.event_logger import EventLogger
@@ -79,6 +79,17 @@ def run_fsm():
                 state = State.RESOLVED
                 
         elif state == State.INVESTIGATE:
+            # Stage 5: Refresh pod name to the current ReplicaSet pod.
+            # On the first pass this is the same pod found in DETECT.
+            # On a reflexion retry this ensures we inspect the newly rolled-out pod,
+            # not the historical one that was already terminated.
+            current_pods = k8s_readonly.find_current_pods_for_deployment(ctx.namespace, ctx.deployment)
+            if current_pods:
+                if current_pods[0] != ctx.pod_name:
+                    logger.info(f"[REFLEXION] Pod refreshed: {ctx.pod_name} -> {current_pods[0]}")
+                ctx.pod_name = current_pods[0]
+            # If find_current_pods_for_deployment returns nothing (race), keep the last known pod name
+
             ctx.status = k8s_readonly.get_pod_status(ctx.namespace, ctx.pod_name)
             ctx.logs = k8s_readonly.get_pod_logs(ctx.namespace, ctx.pod_name, previous=True, tail_lines=50)
             ctx.events = k8s_readonly.get_pod_events(ctx.namespace, ctx.pod_name)
@@ -103,6 +114,13 @@ def run_fsm():
                 )
                 ctx.event_logger.log_event("DIAGNOSIS_GENERATED", state.value, "INFO", ctx.proposal.diagnosis.probable_cause, {"confidence": ctx.proposal.diagnosis.confidence})
                 ctx.event_logger.log_event("PROPOSAL_CREATED", State.PROPOSE.value, "INFO", f"Proposed: {ctx.proposal.proposed_action.operation}", {"new_limit": ctx.proposal.proposed_action.proposed_memory})
+
+                # Stage 5: If the LLM itself recommends escalation, route directly without HITL/patching.
+                if ctx.proposal.proposed_action.operation == "escalate":
+                    ctx.event_logger.log_event("AGENT_ESCALATED", state.value, "INFO", f"Agent recommends escalation: {ctx.proposal.proposed_action.reason}")
+                    state = State.ESCALATED
+                    continue
+
                 state = State.POLICY_CHECK
             except Exception as e:
                 ctx.event_logger.log_event("LLM_ERROR", state.value, "ERROR", str(e))
@@ -167,7 +185,19 @@ def run_fsm():
                 result="FAILED",
                 failure_evidence=ctx.failure_reason
             )
-            state = State.INVESTIGATE
+
+            # Stage 5: Hard retry budget check BEFORE starting another Groq cycle.
+            # The deterministic policy max_attempts limit is enforced here, not by the LLM.
+            attempt_count = ctx.reflexion.get_attempt_count(ctx.run_id)
+            max_attempts = get_max_attempts()
+            if attempt_count >= max_attempts:
+                ctx.event_logger.log_event(
+                    "RETRY_BUDGET_EXHAUSTED", state.value, "ERROR",
+                    f"Attempt count ({attempt_count}) reached max_attempts ({max_attempts}). Escalating without further LLM calls."
+                )
+                state = State.ESCALATED
+            else:
+                state = State.INVESTIGATE
             
     if state == State.RESOLVED:
         ctx.event_logger.log_event("RESOLVED", state.value, "SUCCESS", "Incident safely remediated.")

@@ -3,6 +3,7 @@ allowed_namespaces:
 
 allowed_operations:
   - increase_memory_limit
+  - escalate
 
 allowed_resources:
   - memory-hog

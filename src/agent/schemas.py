@@ -10,9 +10,10 @@ class DiagnosisInfo(BaseModel):
     probable_cause: str = Field(..., description="The probable cause of the incident based on evidence")
     confidence: float = Field(..., description="Confidence level in the diagnosis, between 0.0 and 1.0")
     evidence: List[str] = Field(..., description="List of key evidence points used for the diagnosis")
+    reflection: Optional[str] = Field(None, description="Reflection on previous failed attempts, why they failed, and why this proposal addresses it")
 
 class ProposedAction(BaseModel):
-    operation: str = Field(..., description="The operation to perform, e.g., increase_memory_limit")
+    operation: str = Field(..., description="The operation to perform, e.g., increase_memory_limit or escalate")
     resource: str = Field(..., description="The target resource name")
     current_memory: Optional[str] = Field(None, description="Current memory limit (if applicable)")
     proposed_memory: Optional[str] = Field(None, description="Proposed new memory limit (if applicable)")

@@ -10,9 +10,8 @@ from .prompts import SYSTEM_PROMPT, build_incident_prompt
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Initialize Groq client
-# This expects GROQ_API_KEY to be set in environment variables or .env file
-client = Groq()
+# Client is created lazily inside analyze_incident() so that importing this
+# module in test environments (without GROQ_API_KEY set) does not raise.
 DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 def analyze_incident(
@@ -51,6 +50,8 @@ def analyze_incident(
     logger.info(f"Sending incident data to Groq (Model: {DEFAULT_MODEL})...")
     
     try:
+        # Lazy client initialization — only requires GROQ_API_KEY at call time, not import time.
+        client = Groq()
         # Use structured output feature of Groq or simply instruct it to output JSON
         chat_completion = client.chat.completions.create(
             messages=[
