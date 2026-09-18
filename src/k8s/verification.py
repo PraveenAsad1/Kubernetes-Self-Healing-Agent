@@ -3,7 +3,11 @@ import logging
 from typing import Tuple
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
-from .k8s_readonly import get_deployment, find_pods_for_deployment, get_pod_status
+from .k8s_readonly import (
+    get_deployment,
+    find_current_pods_for_deployment,
+    get_pod_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +44,23 @@ def verify_recovery(namespace: str, deployment_name: str, timeout_seconds: int =
                 time.sleep(5)
                 continue
                 
-            desired = deploy.get("replicas", 1)
-            ready = deploy.get("ready_replicas", 0)
+            desired = deploy.get("replicas") or 1
+            ready = deploy.get("ready_replicas") or 0
+            updated = deploy.get("updated_replicas") or 0
+
+            if (
+                deploy.get("generation") is not None
+                and deploy.get("observed_generation") is not None
+                and deploy["observed_generation"] < deploy["generation"]
+            ):
+                logger.info("Waiting for the Deployment controller to observe the rollout...")
+                time.sleep(5)
+                continue
+
+            if updated < desired:
+                logger.info(f"Waiting for updated replicas: {updated}/{desired}...")
+                time.sleep(5)
+                continue
             
             if ready < desired:
                 logger.info(f"Waiting for rollout: {ready}/{desired} replicas ready...")
@@ -49,13 +68,13 @@ def verify_recovery(namespace: str, deployment_name: str, timeout_seconds: int =
                 continue
                 
             # 2. Check pod statuses for OOMKilled
-            pods = find_pods_for_deployment(namespace, deployment_name)
+            pods = find_current_pods_for_deployment(namespace, deployment_name)
             if not pods:
                 logger.info("No pods found yet, waiting...")
                 time.sleep(5)
                 continue
                 
-            all_ready = True
+            healthy_pods = 0
             oom_recurred = False
             
             for pod_name in pods:
@@ -64,25 +83,31 @@ def verify_recovery(namespace: str, deployment_name: str, timeout_seconds: int =
                     continue
                     
                 # Look for OOMKilled in current or last state
-                for cs in status.get("container_statuses", []):
-                    if not cs.get("ready"):
-                        all_ready = False
-                        
-                    # Check current state
+                container_statuses = status.get("container_statuses", [])
+                if (
+                    status.get("phase") == "Running"
+                    and container_statuses
+                    and all(
+                        cs.get("ready")
+                        and cs.get("state", {}).get("type") == "running"
+                        for cs in container_statuses
+                    )
+                ):
+                    healthy_pods += 1
+                    continue
+
+                for cs in container_statuses:
                     state = cs.get("state", {})
                     if state.get("type") == "terminated" and state.get("reason") == "OOMKilled":
                         oom_recurred = True
-                        
-                    # Check last state
                     last_state = cs.get("last_state", {})
                     if last_state.get("type") == "terminated" and last_state.get("reason") == "OOMKilled":
-                        # If it just OOMKilled recently during this loop
                         oom_recurred = True
             
             if oom_recurred:
                 return False, "OOMKilled recurred after applying patch."
                 
-            if all_ready and ready >= desired:
+            if healthy_pods >= desired and ready >= desired:
                 # To be absolutely sure, wait a few more seconds to see if it crashes immediately
                 if elapsed < 15:
                     logger.info("Rollout complete, waiting a few seconds to ensure stability...")

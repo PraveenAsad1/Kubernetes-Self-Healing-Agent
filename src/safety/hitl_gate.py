@@ -1,6 +1,6 @@
 import sys
-from agent.schemas import RemediationProposal
-from safety.policy_engine import requires_human_approval
+from src.agent.schemas import RemediationProposal
+from src.safety.policy_engine import requires_human_approval
 
 def request_approval(proposal: RemediationProposal) -> bool:
     """

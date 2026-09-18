@@ -126,6 +126,9 @@ def get_deployment(namespace: str, deployment_name: str) -> dict:
             "replicas": deploy.spec.replicas,
             "ready_replicas": deploy.status.ready_replicas,
             "available_replicas": deploy.status.available_replicas,
+            "generation": deploy.metadata.generation,
+            "observed_generation": deploy.status.observed_generation,
+            "updated_replicas": deploy.status.updated_replicas,
         }
     except ApiException as e:
         logger.error(f"Error getting deployment: {e}")
@@ -169,4 +172,48 @@ def find_pods_for_deployment(namespace: str, deployment_name: str) -> list:
         return [pod.metadata.name for pod in pods.items]
     except ApiException as e:
         logger.error(f"Error finding pods for deployment: {e}")
+        return []
+
+def find_current_pods_for_deployment(namespace: str, deployment_name: str) -> list:
+    """Find pods owned by the Deployment's latest ReplicaSet."""
+    try:
+        deploy = apps_v1.read_namespaced_deployment(name=deployment_name, namespace=namespace)
+        match_labels = deploy.spec.selector.match_labels
+        if not match_labels:
+            return []
+
+        label_selector = ",".join([f"{k}={v}" for k, v in match_labels.items()])
+        replica_sets = apps_v1.list_namespaced_replica_set(
+            namespace=namespace,
+            label_selector=label_selector,
+        ).items
+        owned_sets = [
+            replica_set for replica_set in replica_sets
+            if any(
+                owner.uid == deploy.metadata.uid and owner.controller
+                for owner in (replica_set.metadata.owner_references or [])
+            )
+        ]
+        if not owned_sets:
+            return []
+
+        current_replica_set = max(
+            owned_sets,
+            key=lambda replica_set: int(
+                (replica_set.metadata.annotations or {}).get(
+                    "deployment.kubernetes.io/revision", "0"
+                )
+            ),
+        )
+        replica_set_labels = current_replica_set.spec.selector.match_labels
+        replica_set_selector = ",".join(
+            [f"{k}={v}" for k, v in replica_set_labels.items()]
+        )
+        pods = core_v1.list_namespaced_pod(
+            namespace=namespace,
+            label_selector=replica_set_selector,
+        )
+        return [pod.metadata.name for pod in pods.items]
+    except ApiException as e:
+        logger.error(f"Error finding current pods for deployment: {e}")
         return []
