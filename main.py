@@ -114,17 +114,26 @@ def run_fsm():
                 )
                 ctx.event_logger.log_event("DIAGNOSIS_GENERATED", state.value, "INFO", ctx.proposal.diagnosis.probable_cause, {"confidence": ctx.proposal.diagnosis.confidence})
                 ctx.event_logger.log_event("PROPOSAL_CREATED", State.PROPOSE.value, "INFO", f"Proposed: {ctx.proposal.proposed_action.operation}", {"new_limit": ctx.proposal.proposed_action.proposed_memory})
-
-                # Stage 5: If the LLM itself recommends escalation, route directly without HITL/patching.
-                if ctx.proposal.proposed_action.operation == "escalate":
-                    ctx.event_logger.log_event("AGENT_ESCALATED", state.value, "INFO", f"Agent recommends escalation: {ctx.proposal.proposed_action.reason}")
-                    state = State.ESCALATED
-                    continue
-
-                state = State.POLICY_CHECK
+                state = State.PROPOSE
             except Exception as e:
                 ctx.event_logger.log_event("LLM_ERROR", state.value, "ERROR", str(e))
                 state = State.ESCALATED
+
+        elif state == State.PROPOSE:
+            if ctx.proposal is None:
+                ctx.event_logger.log_event("PROPOSAL_MISSING", state.value, "ERROR", "No proposal available for policy evaluation.")
+                state = State.ESCALATED
+                continue
+
+            ctx.event_logger.log_event("PROPOSAL_VALIDATED", state.value, "INFO", "Proposal ready for policy evaluation.")
+
+            # Preserve the non-mutating escalation path without sending it through HITL.
+            if ctx.proposal.proposed_action.operation == "escalate":
+                ctx.event_logger.log_event("AGENT_ESCALATED", state.value, "INFO", f"Agent recommends escalation: {ctx.proposal.proposed_action.reason}")
+                state = State.ESCALATED
+                continue
+
+            state = State.POLICY_CHECK
                 
         elif state == State.POLICY_CHECK:
             attempt_count = ctx.reflexion.get_attempt_count(ctx.run_id)

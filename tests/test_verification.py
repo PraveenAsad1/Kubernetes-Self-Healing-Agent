@@ -13,7 +13,8 @@ class TestVerification(unittest.TestCase):
     @patch('k8s.verification.find_current_pods_for_deployment')
     @patch('k8s.verification.get_pod_status')
     @patch('time.sleep')
-    def test_successful_recovery(self, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment):
+    @patch('k8s.verification.logger.info')
+    def test_successful_recovery(self, mock_logger_info, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment):
         # Mock deployment is ready
         mock_get_deployment.return_value = {
             "name": "memory-hog",
@@ -52,7 +53,8 @@ class TestVerification(unittest.TestCase):
     @patch('k8s.verification.find_current_pods_for_deployment')
     @patch('k8s.verification.get_pod_status')
     @patch('time.sleep')
-    def test_oomkilled_recurrence(self, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment):
+    @patch('k8s.verification.logger.info')
+    def test_oomkilled_recurrence(self, mock_logger_info, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment):
         mock_get_deployment.return_value = {
             "name": "memory-hog",
             "replicas": 1,
@@ -90,8 +92,9 @@ class TestVerification(unittest.TestCase):
     @patch('k8s.verification.find_current_pods_for_deployment')
     @patch('k8s.verification.get_pod_status')
     @patch('time.sleep')
+    @patch('k8s.verification.logger.info')
     def test_historical_oom_on_superseded_pod_is_ignored(
-        self, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment
+        self, mock_logger_info, mock_sleep, mock_pod_status, mock_find_pods, mock_get_deployment
     ):
         mock_get_deployment.return_value = {
             "name": "memory-hog",
@@ -125,7 +128,8 @@ class TestVerification(unittest.TestCase):
 
     @patch('k8s.verification.get_deployment')
     @patch('time.sleep')
-    def test_timeout(self, mock_sleep, mock_get_deployment):
+    @patch('k8s.verification.logger.info')
+    def test_timeout(self, mock_logger_info, mock_sleep, mock_get_deployment):
         # Deployment never ready
         mock_get_deployment.return_value = {
             "name": "memory-hog",
