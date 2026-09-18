@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: safeheal-agent-sa
+  namespace: safeheal-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: safeheal-agent-role
+  namespace: safeheal-demo
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/status", "pods/log", "events"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: safeheal-agent-binding
+  namespace: safeheal-demo
+subjects:
+- kind: ServiceAccount
+  name: safeheal-agent-sa
+  namespace: safeheal-demo
+roleRef:
+  kind: Role
+  name: safeheal-agent-role
+  apiGroup: rbac.authorization.k8s.io
