@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { supabase } from './supabase'
-import './App.css'
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from './supabase';
+import { Sidebar } from './components/Layout/Sidebar';
+import { Header } from './components/Layout/Header';
+import { StatCard } from './components/Dashboard/StatCard';
+import { AgentPanel } from './components/Dashboard/AgentPanel';
+import { IncidentTimeline } from './components/Dashboard/IncidentTimeline';
+import { WorkloadTable } from './components/Dashboard/WorkloadTable';
+import { Activity, ShieldCheck, Server, AlertTriangle } from 'lucide-react';
+import './App.css';
 
 const FSM_STATES = [
   'DETECT',
@@ -14,47 +21,57 @@ const FSM_STATES = [
   'RESOLVED',
   'REFLEXION',
   'ESCALATED',
-]
+];
 
 function sortEvents(eventList) {
   return [...eventList].sort((left, right) => {
     const timestampDifference =
-      new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()
+      new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime();
 
-    if (timestampDifference !== 0) return timestampDifference
-    return String(left.id).localeCompare(String(right.id))
-  })
+    if (timestampDifference !== 0) return timestampDifference;
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+function formatTime(timestamp) {
+  if (!timestamp) return '—';
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 function App() {
-  const [events, setEvents] = useState([])
-  const [connected, setConnected] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [events, setEvents] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
 
   async function loadEvents() {
     const { data, error } = await supabase
       .from('incident_events')
       .select('*')
-      .order('timestamp', { ascending: true })
+      .order('timestamp', { ascending: true });
 
     if (error) {
-      console.error('Failed to load events:', error)
-      setConnected(false)
-      setLoading(false)
-      return
+      console.error('Failed to load events:', error);
+      setConnected(false);
+      setLoading(false);
+      return;
     }
 
     setEvents((current) => {
-      const merged = new Map(current.map((event) => [event.id, event]))
-      for (const event of data || []) merged.set(event.id, event)
-      return sortEvents([...merged.values()])
-    })
-    setConnected(true)
-    setLoading(false)
+      const merged = new Map(current.map((event) => [event.id, event]));
+      for (const event of data || []) merged.set(event.id, event);
+      return sortEvents([...merged.values()]);
+    });
+    setConnected(true);
+    setLoading(false);
   }
 
   useEffect(() => {
-    loadEvents()
+    loadEvents();
 
     const channel = supabase
       .channel('incident-events')
@@ -66,56 +83,49 @@ function App() {
           table: 'incident_events',
         },
         (payload) => {
-          console.log('Realtime INSERT payload:', payload)
           setEvents((current) => {
             if (current.some((event) => event.id === payload.new.id)) {
-              return current
+              return current;
             }
-
-            return sortEvents([...current, payload.new])
-          })
+            return sortEvents([...current, payload.new]);
+          });
         },
       )
       .subscribe((status, error) => {
-        console.log('Realtime status:', status)
-
         if (status === 'SUBSCRIBED') {
-          setConnected(true)
+          setConnected(true);
         } else if (
           status === 'CHANNEL_ERROR' ||
           status === 'TIMED_OUT' ||
           status === 'CLOSED'
         ) {
-          setConnected(false)
-          console.error(`Realtime ${status}:`, error || 'No error details')
+          setConnected(false);
         }
-      })
+      });
 
     return () => {
-      console.log('Realtime channel cleanup')
-      supabase.removeChannel(channel)
-    }
-  }, [])
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
-  const orderedEvents = useMemo(() => sortEvents(events), [events])
-  const latestEvent = orderedEvents[orderedEvents.length - 1]
-
-  const latestRunId = latestEvent?.run_id
+  const orderedEvents = useMemo(() => sortEvents(events), [events]);
+  const latestEvent = orderedEvents[orderedEvents.length - 1];
+  const latestRunId = latestEvent?.run_id;
 
   const currentRunEvents = useMemo(() => {
-    if (!latestRunId) return []
-    return orderedEvents.filter((event) => event.run_id === latestRunId)
-  }, [orderedEvents, latestRunId])
+    if (!latestRunId) return [];
+    return orderedEvents.filter((event) => event.run_id === latestRunId);
+  }, [orderedEvents, latestRunId]);
 
   const latestStageEvent = [...currentRunEvents]
     .reverse()
-    .find((event) => FSM_STATES.includes(event.stage))
-  const currentState = latestStageEvent?.stage || 'IDLE'
+    .find((event) => FSM_STATES.includes(event.stage));
+  const currentState = latestStageEvent?.stage || 'IDLE';
 
   const incidentActive =
     currentState !== 'RESOLVED' &&
     currentState !== 'ESCALATED' &&
-    currentRunEvents.length > 0
+    currentRunEvents.length > 0;
 
   const status =
     currentState === 'RESOLVED'
@@ -124,277 +134,182 @@ function App() {
         ? 'ESCALATED'
         : incidentActive
           ? 'REMEDIATING'
-          : 'OPERATIONAL'
+          : 'OPERATIONAL';
 
   function stateReached(state) {
-    return currentRunEvents.some((event) => event.stage === state)
+    return currentRunEvents.some((event) => event.stage === state);
   }
 
   function stateStatus(state) {
-    const stateEvents = currentRunEvents.filter((event) => event.stage === state)
-    if (!stateEvents.length) return 'pending'
+    const stateEvents = currentRunEvents.filter((event) => event.stage === state);
+    if (!stateEvents.length) return 'pending';
 
     if (state === currentState) {
-      const latestStateEvent = stateEvents[stateEvents.length - 1]
+      const stateLatestEvent = stateEvents[stateEvents.length - 1];
       const terminalStatus = ['SUCCESS', 'RESOLVED', 'ERROR', 'ESCALATED'].includes(
-        latestStateEvent.status?.toUpperCase(),
-      )
-      return terminalStatus ? 'complete' : 'active'
+        stateLatestEvent.status?.toUpperCase(),
+      );
+      return terminalStatus ? 'complete' : 'active';
     }
 
-    if (stateReached(state)) return 'complete'
-    return 'pending'
+    if (stateReached(state)) return 'complete';
+    return 'pending';
   }
 
   const remediationEvent = currentRunEvents.find(
     (event) =>
       event.event_type?.toLowerCase().includes('remedi') ||
       event.stage === 'REMEDIATE',
-  )
+  );
 
   const policyEvent = currentRunEvents.find(
     (event) => event.stage === 'POLICY_CHECK',
-  )
-
-  const hitlEvent = currentRunEvents.find(
-    (event) => event.stage === 'HITL',
-  )
+  );
 
   const verifyEvent = currentRunEvents.find(
     (event) => event.stage === 'VERIFY',
-  )
-
-  function formatTime(timestamp) {
-    if (!timestamp) return '—'
-
-    return new Date(timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  }
-
-  function metadataValue(event, keys) {
-    if (!event?.metadata) return null
-
-    for (const key of keys) {
-      if (event.metadata[key] !== undefined) {
-        return event.metadata[key]
-      }
-    }
-
-    return null
-  }
+  );
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div>
-          <div className="brand">
-            <span className="brand-mark">SH</span>
-            SAFEHEAL
+    <div className="app-container">
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      
+      <div className="main-wrapper">
+        <Header connected={connected} status={status} />
+        
+        <div className="dashboard-content">
+          <div className="page-header">
+            <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
+            <p>Kubernetes SRE Control Center</p>
           </div>
-          <div className="subtitle">
-            POLICY-CONTROLLED KUBERNETES SELF-HEALING AGENT
-          </div>
-        </div>
-
-        <div className="system-status">
-          <span className={`status-dot ${connected ? 'online' : 'offline'}`} />
-          <span>{connected ? 'SYSTEM CONNECTED' : 'DISCONNECTED'}</span>
-        </div>
-      </header>
-
-      <main>
-        <section className="hero-grid">
-          <div className="hero-card">
-            <div className="eyebrow">SYSTEM STATUS</div>
-            <div className="hero-status">{status}</div>
-            <p>
-              SafeHeal observes Kubernetes incidents, proposes bounded
-              remediation, validates policy, and verifies recovery.
-            </p>
-          </div>
-
-          <div className="metric-card">
-            <span>FSM STATE</span>
-            <strong>{currentState}</strong>
-          </div>
-
-          <div className="metric-card">
-            <span>EVENTS</span>
-            <strong>{currentRunEvents.length}</strong>
-          </div>
-        </section>
-
-        <section className="section">
-          <div className="section-heading">
-            <div>
-              <div className="eyebrow">INCIDENT CONTROL</div>
-              <h2>CURRENT INCIDENT</h2>
-            </div>
-            {latestRunId && (
-              <code className="run-id">
-                RUN {latestRunId}
-              </code>
-            )}
-          </div>
-
+          
           {loading ? (
-            <div className="empty">Loading incident data...</div>
-          ) : !latestRunId ? (
-            <div className="empty">
-              No SafeHeal incidents recorded yet.
+            <div className="empty-state">
+              <Activity className="status-dot pulse" size={32} />
+              <div style={{ marginTop: '16px' }}>Connecting to telemetry stream...</div>
             </div>
           ) : (
-            <div className="incident-grid">
-              <div className="incident-main">
-                <span className="label">LATEST EVENT</span>
-                <h3>{latestEvent?.event_type || 'UNKNOWN'}</h3>
-                <p>{latestEvent?.message || 'No message available.'}</p>
-              </div>
-
-              <div className="detail">
-                <span className="label">POD</span>
-                <strong>
-                  {metadataValue(latestEvent, ['pod_name', 'pod']) || '—'}
-                </strong>
-              </div>
-
-              <div className="detail">
-                <span className="label">OPERATION</span>
-                <strong>
-                  {metadataValue(remediationEvent, [
-                    'operation',
-                    'action',
-                  ]) || '—'}
-                </strong>
-              </div>
-
-              <div className="detail">
-                <span className="label">VERIFICATION</span>
-                <strong>
-                  {verifyEvent?.status || 'PENDING'}
-                </strong>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="section">
-          <div className="section-heading">
-            <div>
-              <div className="eyebrow">STATE MACHINE</div>
-              <h2>LIVE FSM TIMELINE</h2>
-            </div>
-          </div>
-
-          <div className="timeline">
-            {FSM_STATES.map((state, index) => {
-              const stateClass = stateStatus(state)
-
-              return (
-                <div className="timeline-item" key={state}>
-                  <div className={`timeline-marker ${stateClass}`}>
-                    {stateClass === 'complete' ? '✓' : index + 1}
+            <>
+              {activeTab === 'overview' && (
+                <>
+                  <div className="metrics-grid">
+                    <StatCard 
+                      title="Cluster Health" 
+                      value="N/A" 
+                      description="Awaiting telemetry" 
+                      icon={Server} 
+                    />
+                    <StatCard 
+                      title="Agent Status" 
+                      value={status} 
+                      description={currentState !== 'IDLE' ? `Stage: ${currentState}` : 'Monitoring Workloads'} 
+                      icon={ShieldCheck} 
+                      valueClass={status === 'OPERATIONAL' || status === 'RESOLVED' ? 'text-success' : 'text-agent'}
+                    />
+                    <StatCard 
+                      title="Active Incidents" 
+                      value={incidentActive ? '1' : '0'} 
+                      description="Current Run Events" 
+                      icon={AlertTriangle} 
+                    />
                   </div>
 
-                  <div className="timeline-content">
-                    <strong>{state}</strong>
-
-                    <span>
-                      {stateClass === 'complete'
-                        ? formatTime(
-                            currentRunEvents.find(
-                              (event) => event.stage === state,
-                            )?.timestamp,
-                          )
-                        : stateClass === 'active'
-                          ? 'IN PROGRESS'
-                          : 'PENDING'}
-                    </span>
+                  <div className="dashboard-main-grid">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                      <AgentPanel 
+                        currentRunEvents={currentRunEvents}
+                        latestEvent={latestEvent}
+                        status={status}
+                        remediationEvent={remediationEvent}
+                        verifyEvent={verifyEvent}
+                      />
+                      <WorkloadTable latestEvent={latestEvent} />
+                    </div>
+                    
+                    <div>
+                      <IncidentTimeline 
+                        currentRunEvents={currentRunEvents}
+                        currentState={currentState}
+                        stateStatus={stateStatus}
+                        formatTime={formatTime}
+                      />
+                    </div>
                   </div>
+                  
+                  <div className="dashboard-bottom-grid">
+                    <div className="card">
+                      <div className="card-header" style={{ marginBottom: 0 }}>
+                        <div className="card-title">Event Ledger</div>
+                        {latestRunId && <div className="badge badge-neutral">RUN {latestRunId}</div>}
+                      </div>
+                      
+                      <div className="table-wrapper">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Stage</th>
+                              <th>Event</th>
+                              <th>Status</th>
+                              <th>Message</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {currentRunEvents.length === 0 ? (
+                              <tr>
+                                <td colSpan="5">
+                                  <div className="empty-state" style={{ padding: '24px' }}>
+                                    No events for current run.
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : (
+                              currentRunEvents.slice().reverse().map((event) => {
+                                const st = event.status?.toLowerCase();
+                                const isSuccess = ['success', 'resolved', 'approved', 'pass'].includes(st);
+                                const isFail = ['failed', 'denied', 'error', 'escalated'].includes(st);
+                                
+                                return (
+                                  <tr key={event.id}>
+                                    <td style={{ fontFamily: 'monospace' }}>{formatTime(event.timestamp)}</td>
+                                    <td><span className="badge badge-neutral">{event.stage}</span></td>
+                                    <td className="td-strong">{event.event_type}</td>
+                                    <td>
+                                      {event.status && (
+                                        <span className={`badge ${isSuccess ? 'badge-success' : isFail ? 'badge-critical' : 'badge-neutral'}`}>
+                                          {event.status}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td>{event.message}</td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {activeTab !== 'overview' && (
+                <div className="empty-state card">
+                  <Activity size={32} />
+                  <h2>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Module</h2>
+                  <p>This module is under construction.</p>
+                  <button className="nav-item" onClick={() => setActiveTab('overview')} style={{ width: 'auto', background: 'var(--color-bg-surface-hover)' }}>
+                    Return to Overview
+                  </button>
                 </div>
-              )
-            })}
-          </div>
-        </section>
-
-        <section className="ledger-section">
-          <div className="section-heading">
-            <div>
-              <div className="eyebrow">AUDIT TRAIL</div>
-              <h2>ACTION / POLICY LEDGER</h2>
-            </div>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>TIME</th>
-                  <th>STAGE</th>
-                  <th>EVENT</th>
-                  <th>STATUS</th>
-                  <th>MESSAGE</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {currentRunEvents
-                  .slice()
-                  .reverse()
-                  .map((event) => (
-                    <tr key={event.id}>
-                      <td className="mono">{formatTime(event.timestamp)}</td>
-                      <td>
-                        <span className="stage">{event.stage}</span>
-                      </td>
-                      <td className="mono">{event.event_type}</td>
-                      <td>
-                        <span
-                          className={`result result-${event.status?.toLowerCase()}`}
-                        >
-                          {event.status}
-                        </span>
-                      </td>
-                      <td>{event.message}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="summary-grid">
-          <div className="summary-card">
-            <span className="label">POLICY</span>
-            <strong>{policyEvent?.status || 'PENDING'}</strong>
-          </div>
-
-          <div className="summary-card">
-            <span className="label">HUMAN APPROVAL</span>
-            <strong>{hitlEvent?.status || 'PENDING'}</strong>
-          </div>
-
-          <div className="summary-card">
-            <span className="label">REMEDIATION</span>
-            <strong>{remediationEvent?.status || 'PENDING'}</strong>
-          </div>
-
-          <div className="summary-card">
-            <span className="label">VERIFICATION</span>
-            <strong>{verifyEvent?.status || 'PENDING'}</strong>
-          </div>
-        </section>
-      </main>
-
-      <footer>
-        SAFEHEAL / KUBERNETES SELF-HEALING AGENT
-        <span>READ-ONLY OBSERVABILITY</span>
-      </footer>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
