@@ -1,0 +1,13 @@
+html {
+  background: #080a0d;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+::selection {
+  background: #e8edf2;
+  color: #080a0d;
+}
